@@ -150,6 +150,22 @@ router.put('/', requireAuth, async (req, res) => {
       }
     }
 
+    // 3. Synchronize registry table when administrator imports students
+    if (Array.isArray(newState.registry) && newState.registry.length > 0) {
+      for (const r of newState.registry) {
+        if (!r.schoolId || !r.name || !r.email) continue;
+        await query(`
+          INSERT INTO registry (school_id, name, email, year, programme)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (school_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            email = EXCLUDED.email,
+            year = EXCLUDED.year,
+            programme = EXCLUDED.programme;
+        `, [r.schoolId, r.name, r.email, r.year || 1, r.programme || '']);
+      }
+    }
+
     return res.status(200).json({ success: true, message: 'State saved successfully.' });
   } catch (err) {
     console.error('Error updating state:', err);
