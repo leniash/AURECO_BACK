@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS registry (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) NOT NULL,
   year INT NOT NULL,
-  programme VARCHAR(255) NOT NULL
+  programme VARCHAR(255) NOT NULL,
+  overall NUMERIC(4,2),
+  gpas JSONB DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE IF NOT EXISTS verification_codes (

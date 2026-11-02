@@ -51,8 +51,16 @@ router.get('/', requireAuth, async (req, res) => {
     const users = usersRes.rows.map(formatUserForClient);
 
     // 2. Fetch Registry
-    const regRes = await query('SELECT school_id AS "schoolId", name, email, year, programme FROM registry');
-    const registry = regRes.rows;
+    const regRes = await query('SELECT school_id AS "schoolId", name, email, year, programme, overall, gpas FROM registry');
+    const registry = regRes.rows.map(r => ({
+      schoolId: r.schoolId,
+      name: r.name,
+      email: r.email,
+      year: r.year,
+      programme: r.programme,
+      overall: r.overall != null ? parseFloat(r.overall) : null,
+      gpas: Array.isArray(r.gpas) ? r.gpas : (typeof r.gpas === 'string' ? JSON.parse(r.gpas) : [])
+    }));
 
     // 3. Fetch Portfolio State
     const stateRes = await query('SELECT * FROM portfolio_state WHERE id = $1 LIMIT 1', ['current']);
@@ -136,6 +144,8 @@ router.put('/', requireAuth, async (req, res) => {
         );
 
         if (existing.rows.length > 0) {
+          const uOverall = u.overall !== undefined && u.overall !== null ? parseFloat(u.overall) : null;
+          const uGpas = Array.isArray(u.gpas) ? JSON.stringify(u.gpas) : null;
           await query(`
             UPDATE users SET
               name = COALESCE($2, name),
@@ -151,6 +161,10 @@ router.put('/', requireAuth, async (req, res) => {
               hon = COALESCE($12, hon),
               company = COALESCE($13, company),
               attach = COALESCE($14, attach),
+              year = CASE WHEN $15::int IS NOT NULL THEN $15::int ELSE year END,
+              programme = CASE WHEN $16::text IS NOT NULL AND $16::text <> '' THEN $16::text ELSE programme END,
+              overall = CASE WHEN $17::numeric IS NOT NULL THEN $17::numeric ELSE overall END,
+              gpas = CASE WHEN $18::jsonb IS NOT NULL AND $18::text <> 'null' THEN $18::jsonb ELSE gpas END,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = $1;
           `, [
@@ -167,7 +181,11 @@ router.put('/', requireAuth, async (req, res) => {
             u.title || null,
             u.hon || null,
             u.company || null,
-            u.attach ? JSON.stringify(u.attach) : null
+            u.attach ? JSON.stringify(u.attach) : null,
+            u.year || null,
+            u.programme || null,
+            uOverall,
+            uGpas
           ]);
         } else {
           // New user (e.g. staff or supervisor added by administrator)
@@ -193,6 +211,10 @@ router.put('/', requireAuth, async (req, res) => {
               teaches = EXCLUDED.teaches,
               company = EXCLUDED.company,
               attach = EXCLUDED.attach,
+              year = EXCLUDED.year,
+              programme = EXCLUDED.programme,
+              overall = EXCLUDED.overall,
+              gpas = EXCLUDED.gpas,
               updated_at = CURRENT_TIMESTAMP;
           `, [
             u.id,
@@ -229,15 +251,33 @@ router.put('/', requireAuth, async (req, res) => {
     if (Array.isArray(newState.registry) && newState.registry.length > 0) {
       for (const r of newState.registry) {
         if (!r.schoolId || !r.name || !r.email) continue;
+        const regOverall = (r.overall !== undefined && r.overall !== null) ? parseFloat(r.overall) : null;
+        const regGpas = Array.isArray(r.gpas) ? JSON.stringify(r.gpas) : '[]';
+
         await query(`
-          INSERT INTO registry (school_id, name, email, year, programme)
-          VALUES ($1, $2, $3, $4, $5)
+          INSERT INTO registry (school_id, name, email, year, programme, overall, gpas)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
           ON CONFLICT (school_id) DO UPDATE SET
             name = EXCLUDED.name,
             email = EXCLUDED.email,
             year = EXCLUDED.year,
-            programme = EXCLUDED.programme;
-        `, [r.schoolId, r.name, r.email, r.year || 1, r.programme || '']);
+            programme = EXCLUDED.programme,
+            overall = COALESCE(EXCLUDED.overall, registry.overall),
+            gpas = CASE WHEN EXCLUDED.gpas::text <> '[]'::text THEN EXCLUDED.gpas ELSE registry.gpas END;
+        `, [r.schoolId, r.name, r.email, r.year || 1, r.programme || '', regOverall, regGpas]);
+
+        // CRITICAL: Immediately update matching active student in users table with uploaded results!
+        if (regOverall !== null || (Array.isArray(r.gpas) && r.gpas.length > 0)) {
+          await query(`
+            UPDATE users SET
+              overall = COALESCE($2, overall),
+              gpas = CASE WHEN $3::jsonb <> '[]'::jsonb THEN $3::jsonb ELSE gpas END,
+              year = COALESCE($4, year),
+              programme = COALESCE($5, programme),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE school_id = $1 OR (email IS NOT NULL AND LOWER(email) = LOWER($6));
+          `, [r.schoolId, regOverall, regGpas, r.year || null, r.programme || null, r.email]);
+        }
       }
     }
 
