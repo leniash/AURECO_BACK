@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   company VARCHAR(255),
   attach JSONB,
   signup_info JSONB,
+  must_change_password BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

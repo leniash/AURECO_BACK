@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const { query } = require('../config/db');
 const { requireAuth } = require('../middleware/auth');
 const emailService = require('../services/emailService');
@@ -34,6 +35,7 @@ function formatUserForClient(row) {
   if (row.company) u.company = row.company;
   if (row.attach) u.attach = row.attach;
   if (row.signup_info) u.signup = row.signup_info;
+  if (row.must_change_password) u.mustChangePassword = true;
 
   return u;
 }
@@ -122,31 +124,104 @@ router.put('/', requireAuth, async (req, res) => {
       JSON.stringify(newState.reports || [])
     ]);
 
-    // 2. Synchronize user profile edits and admin status changes
+    // 2. Synchronize user profile edits, admin status changes, and newly created staff/supervisors
     if (Array.isArray(newState.users)) {
       for (const u of newState.users) {
         if (!u.id) continue;
-        await query(`
-          UPDATE users SET
-            name = COALESCE($2, name),
-            status = COALESCE($3, status),
-            bio = COALESCE($4, bio),
-            skills = COALESCE($5, skills),
-            linkedin = COALESCE($6, linkedin),
-            github = COALESCE($7, github),
-            photo = COALESCE($8, photo),
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = $1;
-        `, [
-          u.id,
-          u.name,
-          u.status,
-          u.bio || '',
-          JSON.stringify(u.skills || []),
-          u.linkedin || '',
-          u.github || '',
-          u.photo || null
-        ]);
+
+        const cleanEmail = (u.email || '').trim().toLowerCase();
+        const existing = await query(
+          'SELECT id FROM users WHERE id = $1 OR (email IS NOT NULL AND LOWER(email) = $2) LIMIT 1',
+          [u.id, cleanEmail]
+        );
+
+        if (existing.rows.length > 0) {
+          await query(`
+            UPDATE users SET
+              name = COALESCE($2, name),
+              status = COALESCE($3, status),
+              bio = COALESCE($4, bio),
+              skills = COALESCE($5, skills),
+              linkedin = COALESCE($6, linkedin),
+              github = COALESCE($7, github),
+              photo = COALESCE($8, photo),
+              teaches = COALESCE($9, teaches),
+              dept = COALESCE($10, dept),
+              title = COALESCE($11, title),
+              hon = COALESCE($12, hon),
+              company = COALESCE($13, company),
+              attach = COALESCE($14, attach),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1;
+          `, [
+            existing.rows[0].id,
+            u.name,
+            u.status,
+            u.bio !== undefined ? u.bio : '',
+            JSON.stringify(u.skills || []),
+            u.linkedin !== undefined ? u.linkedin : '',
+            u.github !== undefined ? u.github : '',
+            u.photo !== undefined ? u.photo : null,
+            JSON.stringify(u.teaches || []),
+            u.dept || null,
+            u.title || null,
+            u.hon || null,
+            u.company || null,
+            u.attach ? JSON.stringify(u.attach) : null
+          ]);
+        } else {
+          // New user (e.g. staff or supervisor added by administrator)
+          const rawPassword = u.password || 'demo1234';
+          const passwordHash = await bcrypt.hash(rawPassword, 10);
+          await query(`
+            INSERT INTO users (
+              id, role, name, school_id, email, password_hash, phone, status,
+              year, programme, overall, gpas, bio, skills, linkedin, github, photo,
+              hon, title, dept, teaches, company, attach, signup_info, must_change_password
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8,
+              $9, $10, $11, $12, $13, $14, $15, $16, $17,
+              $18, $19, $20, $21, $22, $23, $24, $25
+            )
+            ON CONFLICT (id) DO UPDATE SET
+              name = EXCLUDED.name,
+              email = EXCLUDED.email,
+              status = EXCLUDED.status,
+              dept = EXCLUDED.dept,
+              title = EXCLUDED.title,
+              hon = EXCLUDED.hon,
+              teaches = EXCLUDED.teaches,
+              company = EXCLUDED.company,
+              attach = EXCLUDED.attach,
+              updated_at = CURRENT_TIMESTAMP;
+          `, [
+            u.id,
+            u.role || 'staff',
+            u.name,
+            u.schoolId || null,
+            cleanEmail,
+            passwordHash,
+            u.phone || null,
+            u.status || 'active',
+            u.year || null,
+            u.programme || null,
+            u.overall || null,
+            JSON.stringify(u.gpas || []),
+            u.bio || '',
+            JSON.stringify(u.skills || []),
+            u.linkedin || '',
+            u.github || '',
+            u.photo || null,
+            u.hon || null,
+            u.title || null,
+            u.dept || null,
+            JSON.stringify(u.teaches || []),
+            u.company || null,
+            u.attach ? JSON.stringify(u.attach) : null,
+            u.signup ? JSON.stringify(u.signup) : null,
+            true // must_change_password is true for default password
+          ]);
+        }
       }
     }
 
