@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   attach JSONB,
   signup_info JSONB,
   must_change_password BOOLEAN DEFAULT false,
+  public_share JSONB DEFAULT '{"enabled": false, "showGrades": true, "showTranscripts": false, "showProjects": true, "showActs": true, "showLetters": false}'::jsonb,
+  share_slug VARCHAR(128) UNIQUE,
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -89,3 +91,21 @@ CREATE TABLE IF NOT EXISTS email_logs (
   status VARCHAR(32) NOT NULL,
   sent_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS guest_access (
+  id SERIAL PRIMARY KEY,
+  token VARCHAR(64) UNIQUE NOT NULL,
+  access_code VARCHAR(10) NOT NULL,
+  type VARCHAR(32) NOT NULL, -- 'letter' or 'verify'
+  reference_id VARCHAR(64) NOT NULL,
+  student_id VARCHAR(64) NOT NULL,
+  recipient_email VARCHAR(255) NOT NULL,
+  recipient_name VARCHAR(255) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_guest_access_token ON guest_access(token);
+CREATE INDEX IF NOT EXISTS idx_guest_access_code ON guest_access(access_code);
+

@@ -1,13 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const { requireAuth } = require('../middleware/auth');
-const aiService = require('../services/aiService');
+const { query } = require('../config/db');
+
+const guestAuthOrUser = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return requireAuth(req, res, next);
+  }
+  const guestToken = req.headers['x-guest-token'] || (req.body && req.body.guestToken);
+  if (guestToken) {
+    try {
+      const check = await query("SELECT * FROM guest_access WHERE token = $1 AND status = 'active' AND expires_at > NOW()", [guestToken]);
+      if (check.rows.length > 0) {
+        req.guest = check.rows[0];
+        return next();
+      }
+    } catch (e) {
+      console.error('Guest auth error in AI route:', e.message);
+    }
+  }
+  return requireAuth(req, res, next);
+};
 
 /**
  * POST /api/ai/recommendation-letter
  * Generates an academic recommendation letter with Gemini
  */
-router.post('/recommendation-letter', requireAuth, async (req, res) => {
+router.post('/recommendation-letter', guestAuthOrUser, async (req, res) => {
   try {
     const { student, lecturer, purpose, specificNote, projects, activities, gpa } = req.body;
 
@@ -15,9 +34,11 @@ router.post('/recommendation-letter', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'Student information is required.' });
     }
 
+    const lecturerInfo = lecturer || req.user || (req.guest ? { name: req.guest.recipient_name, title: 'Recommender', dept: 'External / Partner' } : {});
+
     const result = await aiService.generateRecommendationLetter({
       student,
-      lecturer: lecturer || req.user,
+      lecturer: lecturerInfo,
       purpose,
       specificNote,
       projects,
@@ -79,6 +100,30 @@ router.post('/improve-project', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('AI Project polish error:', err);
     return res.status(500).json({ message: err.message || 'Project improvement failed.' });
+  }
+/**
+ * POST /api/ai/draft-request-email
+ * Generates an academic recommendation request email from student to recommender
+ */
+router.post('/draft-request-email', requireAuth, async (req, res) => {
+  try {
+    const { recipientName, purpose, notes, deadline } = req.body;
+    const studentName = req.user ? req.user.name : req.body.studentName;
+    const studentProgramme = req.user ? req.user.programme : req.body.studentProgramme;
+
+    const result = await aiService.draftRequestEmail({
+      studentName,
+      studentProgramme,
+      recipientName,
+      purpose,
+      notes,
+      deadline
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error('AI Request email drafting error:', err);
+    return res.status(500).json({ message: err.message || 'AI drafting failed.' });
   }
 });
 

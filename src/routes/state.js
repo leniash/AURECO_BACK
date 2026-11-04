@@ -36,6 +36,8 @@ function formatUserForClient(row) {
   if (row.attach) u.attach = row.attach;
   if (row.signup_info) u.signup = row.signup_info;
   if (row.must_change_password) u.mustChangePassword = true;
+  if (row.public_share) u.publicShare = row.public_share;
+  if (row.share_slug) u.shareSlug = row.share_slug;
 
   return u;
 }
@@ -165,6 +167,8 @@ router.put('/', requireAuth, async (req, res) => {
               programme = CASE WHEN $16::text IS NOT NULL AND $16::text <> '' THEN $16::text ELSE programme END,
               overall = CASE WHEN $17::numeric IS NOT NULL THEN $17::numeric ELSE overall END,
               gpas = CASE WHEN $18::jsonb IS NOT NULL AND $18::text <> 'null' THEN $18::jsonb ELSE gpas END,
+              public_share = CASE WHEN $19::jsonb IS NOT NULL THEN $19::jsonb ELSE public_share END,
+              share_slug = CASE WHEN $20::text IS NOT NULL AND $20::text <> '' THEN $20::text ELSE share_slug END,
               updated_at = CURRENT_TIMESTAMP
             WHERE id = $1;
           `, [
@@ -185,7 +189,9 @@ router.put('/', requireAuth, async (req, res) => {
             u.year || null,
             u.programme || null,
             uOverall,
-            uGpas
+            uGpas,
+            u.publicShare ? JSON.stringify(u.publicShare) : null,
+            u.shareSlug || null
           ]);
         } else {
           // New user (e.g. staff or supervisor added by administrator)

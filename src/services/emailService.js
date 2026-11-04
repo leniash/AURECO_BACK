@@ -5,11 +5,14 @@ let transporter = null;
 if (process.env.SMTP_HOST && process.env.SMTP_USER) {
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587', 10),
-    secure: process.env.SMTP_SECURE === 'true',
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
     }
   });
 }
@@ -66,20 +69,102 @@ async function sendVerificationCode(email, code, stage) {
   return sendEmail({ to: email, subject, html, text: `Your Africa University verification code is: ${code}` });
 }
 
-async function sendLetterRequestNotification(lecturerEmail, studentName, purpose) {
-  const subject = `Recommendation Letter Request: ${studentName}`;
+async function sendLetterRequestNotification(params, legacyStudentName, legacyPurpose) {
+  let to, recipientName, studentName, studentProgramme, purpose, note, accessCode, token, isGuest;
+  if (typeof params === 'object') {
+    ({ to, recipientName, studentName, studentProgramme, purpose, note, accessCode, token, isGuest } = params);
+  } else {
+    to = params;
+    studentName = legacyStudentName;
+    purpose = legacyPurpose;
+  }
+
+  const feUrl = process.env.FRONTEND_URL || 'https://africa-university-student-recommendation-front.vercel.app';
+  const targetLink = isGuest && token ? `${feUrl}/#/guest/letter/${token}` : `${feUrl}/#/login`;
+  const subject = `Recommendation Letter Request: ${studentName || 'Student'}`;
+
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 560px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
-      <h2 style="color: #0b1f3a; margin-top: 0;">Africa University Staff Portal</h2>
-      <p>Dear Colleague,</p>
-      <p><b>${studentName}</b> has requested a letter of recommendation for <b>${purpose}</b>.</p>
-      <p>You can review their academic grades, completed projects, verified achievements, and use the AI recommendation assistant to draft your letter via the staff portal.</p>
-      <p style="margin-top: 24px;">
-        <a href="${process.env.FRONTEND_URL || 'https://africa-university-portfolio.vercel.app'}" style="background-color: #c49a45; color: #fff; padding: 10px 18px; text-decoration: none; border-radius: 4px; font-weight: bold;">Open Staff Portal</a>
+    <div style="font-family: Arial, sans-serif; max-width: 580px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; color: #1e293b;">
+      <div style="border-bottom: 2px solid #c49a45; padding-bottom: 12px; margin-bottom: 16px;">
+        <h2 style="color: #0b1f3a; margin: 0; font-size: 20px;">Africa University</h2>
+        <span style="font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Official Recommendation Request</span>
+      </div>
+
+      <p style="font-size: 15px;">Dear ${recipientName || 'Colleague'},</p>
+      <p style="font-size: 14px; line-height: 1.5;">
+        <b>${studentName}</b> ${studentProgramme ? `(${studentProgramme})` : ''} has requested a Letter of Recommendation for <b>${purpose || 'Academic / Professional Application'}</b>.
+      </p>
+
+      ${note ? `
+        <div style="background-color: #f8fafc; border-left: 4px solid #c49a45; padding: 12px 16px; margin: 16px 0; font-size: 13px; font-style: italic; color: #334155;">
+          "${note.replace(/\n/g, '<br>')}"
+        </div>
+      ` : ''}
+
+      ${isGuest && accessCode ? `
+        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 16px; margin: 20px 0; text-align: center;">
+          <div style="font-size: 12px; font-weight: bold; color: #1e40af; text-transform: uppercase; letter-spacing: 1px;">Your Secure One-Time Access Code</div>
+          <div style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #1e3a8a; margin: 8px 0; font-family: monospace;">${accessCode}</div>
+          <p style="margin: 0; font-size: 12px; color: #3b82f6;">No account needed. Use this code or click the direct button below to access the recommendation portal.</p>
+        </div>
+      ` : ''}
+
+      <p style="font-size: 13px; color: #475569;">
+        You can review the student's authorized portfolio records, academic results, and use the <b>Gemini AI Letter Assistant</b> to draft, sign, and certify your letter directly on the portal.
+      </p>
+
+      <div style="margin-top: 24px; text-align: center;">
+        <a href="${targetLink}" style="background-color: #c49a45; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; display: inline-block;">
+          ${isGuest ? 'Open Guest Recommendation Portal' : 'Open Staff Portal'}
+        </a>
+      </div>
+      <p style="font-size: 11px; color: #94a3b8; margin-top: 24px; text-align: center;">
+        Africa University, Mutare, Zimbabwe · Student Portfolio & Verified Credentials System
       </p>
     </div>
   `;
-  return sendEmail({ to: lecturerEmail, subject, html, text: `${studentName} requested a recommendation letter for ${purpose}.` });
+
+  return sendEmail({ to, subject, html, text: `${studentName} requested a recommendation letter for ${purpose}. Open: ${targetLink}` });
+}
+
+async function sendVerificationRequestNotification({ to, verifierName, studentName, activityTitle, activityType, accessCode, token, isGuest }) {
+  const feUrl = process.env.FRONTEND_URL || 'https://africa-university-student-recommendation-front.vercel.app';
+  const targetLink = isGuest && token ? `${feUrl}/#/guest/verify/${token}` : `${feUrl}/#/login`;
+  const subject = `Activity Verification Request: ${studentName}`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 580px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; color: #1e293b;">
+      <div style="border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 16px;">
+        <h2 style="color: #0b1f3a; margin: 0; font-size: 20px;">Africa University</h2>
+        <span style="font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 1px;">Credential & Activity Verification</span>
+      </div>
+
+      <p style="font-size: 15px;">Dear ${verifierName || 'Colleague'},</p>
+      <p style="font-size: 14px; line-height: 1.5;">
+        <b>${studentName}</b> has requested that you verify the following achievement/activity for their official university portfolio:
+      </p>
+
+      <div style="background-color: #f8fafc; border-left: 4px solid #059669; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #1e293b;">
+        <b>${activityTitle}</b> (${activityType || 'Extracurricular / Project'})
+      </div>
+
+      ${isGuest && accessCode ? `
+        <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 16px; margin: 20px 0; text-align: center;">
+          <div style="font-size: 12px; font-weight: bold; color: #065f46; text-transform: uppercase; letter-spacing: 1px;">Your One-Time Access Code</div>
+          <div style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #047857; margin: 8px 0; font-family: monospace;">${accessCode}</div>
+          <p style="margin: 0; font-size: 12px; color: #059669;">Use this code or click the button below to verify this student record.</p>
+        </div>
+      ` : ''}
+
+      <div style="margin-top: 24px; text-align: center;">
+        <a href="${targetLink}" style="background-color: #059669; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px; display: inline-block;">
+          ${isGuest ? 'Review & Verify Activity' : 'Open Staff Portal'}
+        </a>
+      </div>
+    </div>
+  `;
+
+  return sendEmail({ to, subject, html, text: `${studentName} requested verification for ${activityTitle}. Open: ${targetLink}` });
 }
 
 async function sendLetterReadyNotification(studentEmail, studentName, lecturerName) {
@@ -111,6 +196,7 @@ module.exports = {
   sendEmail,
   sendVerificationCode,
   sendLetterRequestNotification,
+  sendVerificationRequestNotification,
   sendLetterReadyNotification,
   sendAccountApprovedNotification
 };

@@ -1,6 +1,11 @@
 const { GoogleGenAI } = require('@google/genai');
 const { query } = require('../config/db');
 
+// Ensure Windows SSL certificate chains do not fail TLS handshakes
+if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === undefined) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 const apiKey = process.env.GEMINI_API_KEY;
 let aiClient = null;
 
@@ -158,8 +163,51 @@ Return only pure JSON without markdown backticks.
   }
 }
 
+/**
+ * AI-assisted recommendation request email drafting for students.
+ */
+async function draftRequestEmail({ studentName, studentProgramme, recipientName, purpose, notes, deadline }) {
+  if (!aiClient) {
+    throw new Error('AI service is not configured.');
+  }
+
+  const prompt = `
+You are drafting a professional, respectful, and persuasive academic email from an Africa University student requesting a Letter of Recommendation.
+Africa University is an elite Pan-African university in Zimbabwe.
+
+Student Information:
+- Student Name: ${studentName || 'Ashley Kanombirira'}
+- Programme: ${studentProgramme || 'BSc Software Engineering'}
+- Recipient / Faculty Member / Recommender: ${recipientName || 'Professor'}
+- Purpose of Letter: ${purpose || 'Job / Internship / Scholarship Application'}
+- Specific Notes / Highlights Student Wants Mentioned: ${notes || 'Highlighted performance in coursework and practical projects'}
+- Deadline: ${deadline || 'Two weeks'}
+
+Instructions:
+1. Write a polite, articulate, and well-structured email.
+2. Structure:
+   - Respectful salutation (e.g. "Dear ${recipientName || 'Professor'},")
+   - Clear statement of request and purpose.
+   - Polite explanation of why the student is asking this specific recommender (referencing their mentorship or class).
+   - Brief summary of what the student is sharing (grades, project portfolio).
+   - Mention the target deadline respectfully.
+   - Sincere expression of gratitude.
+   - Professional closing with student's full name and programme.
+3. Return ONLY the ready-to-send email body text without markdown backticks or extra preamble.
+`;
+
+  const response = await aiClient.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: prompt
+  });
+
+  return { emailText: response.text ? response.text.trim() : '' };
+}
+
 module.exports = {
   generateRecommendationLetter,
   reviewPortfolio,
-  improveProjectDescription
+  improveProjectDescription,
+  draftRequestEmail
 };
+

@@ -5,6 +5,10 @@ const cors = require('cors');
 const authRoutes = require('./routes/auth');
 const stateRoutes = require('./routes/state');
 const aiRoutes = require('./routes/ai');
+const guestAccessRoutes = require('./routes/guestAccess');
+const publicProfileRoutes = require('./routes/publicProfile');
+const lettersRoutes = require('./routes/letters');
+const directoryRoutes = require('./routes/directory');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -39,7 +43,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'x-guest-token']
 }));
 
 // Body parser with 20MB limit for profile images and certificates
@@ -64,6 +68,10 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/state', stateRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/guest', guestAccessRoutes);
+app.use('/api/public', publicProfileRoutes);
+app.use('/api/letters', lettersRoutes);
+app.use('/api/directory', directoryRoutes);
 
 // 404 Handler
 app.use((req, res) => {
