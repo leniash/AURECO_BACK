@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../config/db');
+const { requireAuth } = require('../middleware/auth');
+const aiService = require('../services/aiService');
 
 const guestAuthOrUser = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -101,6 +103,8 @@ router.post('/improve-project', requireAuth, async (req, res) => {
     console.error('AI Project polish error:', err);
     return res.status(500).json({ message: err.message || 'Project improvement failed.' });
   }
+});
+
 /**
  * POST /api/ai/draft-request-email
  * Generates an academic recommendation request email from student to recommender
