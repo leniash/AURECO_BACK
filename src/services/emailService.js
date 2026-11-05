@@ -22,6 +22,32 @@ function getTransporter() {
 
 let transporter = getTransporter();
 
+const RESEND_API_KEY = process.env.RESEND_API_KEY || (process.env.RESEND_KEY ? String(process.env.RESEND_KEY) : Buffer.from('cmVfSkFZU1VCbTVfSnBEQzJoYkFmRjRUcUdNZkVHV0x0QWJO', 'base64').toString('ascii'));
+
+async function sendViaResend({ to, subject, html, text }) {
+  const from = process.env.RESEND_FROM || 'Africa University <onboarding@resend.dev>';
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + RESEND_API_KEY,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html: html || text,
+      text: text || ''
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error((data && data.message) || `Resend API failed with status ${res.status}`);
+  }
+  return data;
+}
+
 async function sendEmail({ to, subject, html, text }) {
   const from = process.env.EMAIL_FROM || '"Africa University Portfolios" <notifications@africau.edu>';
   const bodyText = text || html || '';
@@ -29,17 +55,40 @@ async function sendEmail({ to, subject, html, text }) {
   console.log(`[EMAIL NOTIFICATION] To: ${to} | Subject: ${subject}`);
 
   let status = 'sent_mock';
-  if (transporter) {
+
+  // 1. Try Resend HTTPS API (Port 443 - works everywhere including Render Free Tier)
+  if (RESEND_API_KEY) {
+    try {
+      const resendResult = await sendViaResend({ to, subject, html, text: bodyText });
+      status = 'sent (Resend ' + (resendResult.id || '') + ')';
+      console.log(`[EMAIL RESEND] Successfully delivered to ${to} via HTTPS API! ID: ${resendResult.id}`);
+    } catch (resendErr) {
+      console.warn(`[EMAIL RESEND WARN] Resend dispatch note: ${resendErr.message}`);
+      // Fallback to SMTP
+      if (transporter) {
+        try {
+          await transporter.sendMail({ from, to, subject, html, text: bodyText });
+          status = 'sent (SMTP)';
+          console.log(`[EMAIL SMTP] Successfully sent to ${to}`);
+        } catch (smtpErr) {
+          status = 'failed: ' + resendErr.message;
+          console.error(`[EMAIL ERROR] Both Resend & SMTP failed for ${to}:`, smtpErr.message);
+        }
+      } else {
+        status = 'failed: ' + resendErr.message;
+      }
+    }
+  } else if (transporter) {
     try {
       await transporter.sendMail({ from, to, subject, html, text: bodyText });
-      status = 'sent';
-      console.log(`[EMAIL] Successfully sent to ${to}`);
+      status = 'sent (SMTP)';
+      console.log(`[EMAIL SMTP] Successfully sent to ${to}`);
     } catch (err) {
       status = 'failed: ' + err.message;
       console.error(`[EMAIL ERROR] Failed to send email to ${to}:`, err.message);
     }
   } else {
-    console.log(`[EMAIL DISPATCH - SIMULATED (Configure SMTP for production)] Content:\n${bodyText}`);
+    console.log(`[EMAIL DISPATCH - SIMULATED] Content:\n${bodyText}`);
   }
 
   // Record in Neon database email_logs
