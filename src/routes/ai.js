@@ -124,7 +124,8 @@ router.post('/draft-request-email', requireAuth, async (req, res) => {
       deadline
     });
 
-    return res.json(result);
+    const draft = result.emailText || '';
+    return res.json({ draft, emailText: draft });
   } catch (err) {
     console.error('AI Request email drafting error:', err);
     return res.status(500).json({ message: err.message || 'AI drafting failed.' });
