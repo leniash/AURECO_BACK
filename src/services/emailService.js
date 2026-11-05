@@ -23,6 +23,35 @@ function getTransporter() {
 let transporter = getTransporter();
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY || (process.env.RESEND_KEY ? String(process.env.RESEND_KEY) : Buffer.from('cmVfSkFZU1VCbTVfSnBEQzJoYkFmRjRUcUdNZkVHV0x0QWJO', 'base64').toString('ascii'));
+const BREVO_API_KEY = process.env.BREVO_API_KEY || process.env.BREVO_KEY || '';
+
+async function sendViaBrevo({ to, subject, html, text }) {
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER || 'mushayapokuvakat@africau.edu';
+  const senderName = process.env.BREVO_SENDER_NAME || 'Africa University Portfolios';
+  const toList = (Array.isArray(to) ? to : [to]).map(e => ({ email: e }));
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': BREVO_API_KEY,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail },
+      to: toList,
+      subject,
+      htmlContent: html || text,
+      textContent: text || ''
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error((data && (data.message || data.error)) || `Brevo API failed with status ${res.status}`);
+  }
+  return data;
+}
 
 async function sendViaResend({ to, subject, html, text }) {
   const from = process.env.RESEND_FROM || 'Africa University <onboarding@resend.dev>';
@@ -56,38 +85,39 @@ async function sendEmail({ to, subject, html, text }) {
 
   let status = 'sent_mock';
 
-  // 1. Try Resend HTTPS API (Port 443 - works everywhere including Render Free Tier)
-  if (RESEND_API_KEY) {
+  // 1. Try Brevo HTTPS API (Port 443 - allows any recipient domain in the world)
+  if (BREVO_API_KEY) {
+    try {
+      const bRes = await sendViaBrevo({ to, subject, html, text: bodyText });
+      status = 'sent (Brevo ' + (bRes.messageId || '') + ')';
+      console.log(`[EMAIL BREVO] Successfully delivered to ${to} via HTTPS API! MessageId: ${bRes.messageId}`);
+    } catch (bErr) {
+      console.warn(`[EMAIL BREVO WARN] ${bErr.message}`);
+    }
+  }
+
+  // 2. Try Resend HTTPS API (Port 443)
+  if (!status.startsWith('sent') && RESEND_API_KEY) {
     try {
       const resendResult = await sendViaResend({ to, subject, html, text: bodyText });
       status = 'sent (Resend ' + (resendResult.id || '') + ')';
       console.log(`[EMAIL RESEND] Successfully delivered to ${to} via HTTPS API! ID: ${resendResult.id}`);
     } catch (resendErr) {
-      console.warn(`[EMAIL RESEND WARN] Resend dispatch note: ${resendErr.message}`);
-      // Fallback to SMTP
-      if (transporter) {
-        try {
-          await transporter.sendMail({ from, to, subject, html, text: bodyText });
-          status = 'sent (SMTP)';
-          console.log(`[EMAIL SMTP] Successfully sent to ${to}`);
-        } catch (smtpErr) {
-          status = 'failed: ' + resendErr.message;
-          console.error(`[EMAIL ERROR] Both Resend & SMTP failed for ${to}:`, smtpErr.message);
-        }
-      } else {
-        status = 'failed: ' + resendErr.message;
-      }
+      console.warn(`[EMAIL RESEND WARN] ${resendErr.message}`);
     }
-  } else if (transporter) {
+  }
+
+  // 3. Fallback to SMTP
+  if (!status.startsWith('sent') && transporter) {
     try {
       await transporter.sendMail({ from, to, subject, html, text: bodyText });
       status = 'sent (SMTP)';
       console.log(`[EMAIL SMTP] Successfully sent to ${to}`);
-    } catch (err) {
-      status = 'failed: ' + err.message;
-      console.error(`[EMAIL ERROR] Failed to send email to ${to}:`, err.message);
+    } catch (smtpErr) {
+      status = 'failed: ' + smtpErr.message;
+      console.error(`[EMAIL ERROR] SMTP failed for ${to}:`, smtpErr.message);
     }
-  } else {
+  } else if (!status.startsWith('sent')) {
     console.log(`[EMAIL DISPATCH - SIMULATED] Content:\n${bodyText}`);
   }
 
