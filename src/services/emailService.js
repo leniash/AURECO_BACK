@@ -1,21 +1,26 @@
 const nodemailer = require('nodemailer');
 const { query } = require('../config/db');
 
-let transporter = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER) {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '465', 10),
-    secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
+function getTransporter() {
+  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const user = process.env.SMTP_USER || 'mushayapokuvakat@africau.edu';
+  const pass = process.env.SMTP_PASS || 'xqkzrnrpbmlqgrao';
+  const port = parseInt(process.env.SMTP_PORT || '465', 10);
+  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+
+  if (user && pass) {
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      tls: { rejectUnauthorized: false }
+    });
+  }
+  return null;
 }
+
+let transporter = getTransporter();
 
 async function sendEmail({ to, subject, html, text }) {
   const from = process.env.EMAIL_FROM || '"Africa University Portfolios" <notifications@africau.edu>';
