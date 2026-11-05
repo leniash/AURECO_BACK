@@ -11,12 +11,17 @@ const emailService = require('../services/emailService');
  */
 router.post('/request', requireAuth, async (req, res) => {
   try {
-    const student = req.user;
+    const studentUser = req.user;
+    const studentId = studentUser.id || studentUser.userId;
     const { recipientEmail, recipientName, staffId, purpose, due, note, share } = req.body;
 
     if (!recipientEmail || !/^\S+@\S+\.\S+$/.test(recipientEmail)) {
       return res.status(400).json({ message: 'A valid recommender email address is required.' });
     }
+
+    // Fetch full student record to get actual name and programme
+    const studentDbRes = await query('SELECT id, name, programme, email FROM users WHERE id = $1 LIMIT 1', [studentId]);
+    const student = studentDbRes.rows[0] || { id: studentId, name: studentUser.name || 'Student', programme: 'Africa University' };
 
     // Check if recipient is an existing registered staff/supervisor user
     const userRes = await query(
@@ -114,12 +119,17 @@ router.post('/request', requireAuth, async (req, res) => {
  */
 router.post('/verify-activity', requireAuth, async (req, res) => {
   try {
-    const student = req.user;
+    const studentUser = req.user;
+    const studentId = studentUser.id || studentUser.userId;
     const { activityId, verifierEmail, verifierName } = req.body;
 
     if (!verifierEmail || !/^\S+@\S+\.\S+$/.test(verifierEmail)) {
       return res.status(400).json({ message: 'A valid verifier email is required.' });
     }
+
+    // Fetch student record for actual name
+    const studentDbRes = await query('SELECT id, name FROM users WHERE id = $1 LIMIT 1', [studentId]);
+    const student = studentDbRes.rows[0] || { id: studentId, name: studentUser.name || 'Student' };
 
     const psRes = await query(`SELECT * FROM portfolio_state WHERE id = 'current' LIMIT 1`);
     const ps = psRes.rows[0] || {};
