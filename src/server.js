@@ -73,6 +73,8 @@ app.use('/api/public', publicProfileRoutes);
 app.use('/api/letters', lettersRoutes);
 app.use('/api/directory', directoryRoutes);
 
+app.use('/api/legal', require('./routes/legal'));
+
 // 404 Handler
 app.use((req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` });
